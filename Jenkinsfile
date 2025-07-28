@@ -4,8 +4,8 @@ pipeline {
         choice(name: 'TARGET_ENV', choices: ['DEV', 'UAT'], description: 'Select deployment environment')
     }
     environment {
-        DEV_HOST    = '1.1.1.1.28'       // DEV = Server 28
-        UAT_HOST    = '1.1.1.1.27'       // UAT = Server 27
+        DEV_HOST    = '172.25.1.28'       // DEV = Server 28
+        UAT_HOST    = '172.25.1.27'       // UAT = Server 27
         REMOTE_DIR  = '/opt/deployed-apps'
     }
     stages {
