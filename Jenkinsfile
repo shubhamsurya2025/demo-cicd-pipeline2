@@ -27,7 +27,7 @@ pipeline {
                 script {
                     // Select host & credential based on TARGET_ENV
                     def host   = (params.TARGET_ENV == 'DEV') ? env.DEV_HOST : env.UAT_HOST
-                    def credId = (params.TARGET_ENV == 'DEV') ? 'ssh-server28-key' : 'ssh-server27-key'
+                    def credId = (params.TARGET_ENV == 'DEV') ? 'ssh-shubham-key' : 'ssh-shubham-key-27'
                     echo "Deploying to ${params.TARGET_ENV} at ${host}…"
 
                     def remote = [
