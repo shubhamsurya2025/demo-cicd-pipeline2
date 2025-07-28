@@ -71,20 +71,6 @@ pipeline {
                             echo lsOut.trim()
                             echo "=========================================="
                             
-                            // Show system information from target server
-                            def sysInfo = sshCommand remote: remote, command: """
-                                echo "Hostname: \$(hostname)"
-                                echo "Current User: \$(whoami)"  
-                                echo "Date/Time: \$(date)"
-                                echo "Uptime: \$(uptime -p)"
-                                echo "Disk Usage:"
-                                df -h / | tail -1
-                            """, returnStdout: true
-                            echo "SYSTEM INFO FROM ${params.TARGET_ENV} SERVER"
-                            echo "=========================================="
-                            echo sysInfo.trim()
-                            echo "=========================================="
-                            
                         } catch (Exception e) {
                             echo "ERROR: Deployment failed - ${e.message}"
                             throw e
@@ -135,13 +121,6 @@ pipeline {
                                 fi
                             """
                             
-                            // Show source data content
-                            def sourceData = sshCommand remote: uatRemote, command: "cat ${env.REMOTE_DIR}/data.txt", returnStdout: true
-                            echo "SOURCE DATA FROM UAT SERVER:"
-                            echo "=========================================="
-                            echo sourceData.trim()
-                            echo "=========================================="
-                            
                             // Pull data from UAT to Jenkins workspace
                             echo "Copying data from UAT to Jenkins workspace..."
                             sshGet remote: uatRemote, from: "${env.REMOTE_DIR}/data.txt", into: 'data.txt'
@@ -177,14 +156,16 @@ pipeline {
     }
     post {
         success {
-            echo "=========================================="
-            echo "🎉 PIPELINE COMPLETED SUCCESSFULLY!"
-            echo "Environment: ${params.TARGET_ENV}"
-            echo "Deployment Status: ✅ SUCCESS"
-            if (params.TARGET_ENV == 'DEV') {
-                echo "Data Migration: ✅ COMPLETED"
+            script {
+                echo "=========================================="
+                echo "🎉 PIPELINE COMPLETED SUCCESSFULLY!"
+                echo "Environment: ${params.TARGET_ENV}"
+                echo "Deployment Status: ✅ SUCCESS"
+                if (params.TARGET_ENV == 'DEV') {
+                    echo "Data Migration: ✅ COMPLETED"
+                }
+                echo "=========================================="
             }
-            echo "=========================================="
         }
         failure {
             echo "=========================================="
@@ -193,7 +174,7 @@ pipeline {
             echo "Check the console output above for detailed error information"
             echo "Common issues:"
             echo "1. SSH credentials not found in System Global scope"
-            echo "2. Target server connectivity issues"
+            echo "2. Target server connectivity issues"  
             echo "3. Permission issues on remote directories"
             echo "=========================================="
         }
