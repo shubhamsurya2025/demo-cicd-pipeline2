@@ -27,8 +27,8 @@ pipeline {
                 script {
                     // Use your EXISTING credential IDs
                     def host   = (params.TARGET_ENV == 'DEV') ? env.DEV_HOST : env.UAT_HOST
-                    def credId = (params.TARGET_ENV == 'DEV') ? 'ssh-shubham-key' : 'ssh-shubham-key-27'
-                    
+                    // Instead of just 'ssh-shubham-key', use the user-scoped path
+                    def credId = (params.TARGET_ENV == 'DEV') ? 'shubham_suryawanshi@ssh-shubham-key' : 'shubham_suryawanshi@ssh-shubham-key-27'
                     echo "Deploying to ${params.TARGET_ENV} at ${host} using credential ${credId}..."
 
                     def remote = [
