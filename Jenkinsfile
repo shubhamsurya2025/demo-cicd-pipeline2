@@ -25,26 +25,30 @@ pipeline {
         stage('Deploy & Capture Output') {
             steps {
                 script {
-                    // Select host & credential based on TARGET_ENV
+                    // Use your EXISTING credential IDs
                     def host   = (params.TARGET_ENV == 'DEV') ? env.DEV_HOST : env.UAT_HOST
                     def credId = (params.TARGET_ENV == 'DEV') ? 'ssh-shubham-key' : 'ssh-shubham-key-27'
-                    echo "Deploying to ${params.TARGET_ENV} at ${host}…"
+                    
+                    echo "Deploying to ${params.TARGET_ENV} at ${host} using credential ${credId}..."
 
                     def remote = [
                         user:          'shubham',
                         host:          host,
                         allowAnyHosts: true
                     ]
+                    
                     withCredentials([sshUserPrivateKey(credentialsId: credId,
                                                        keyFileVariable: 'KEYFILE',
                                                        usernameVariable: 'USER')]) {
                         remote.identity = KEYFILE
+                        
                         // Copy and execute
                         sshPut    remote: remote, from: 'app.sh', into: "${env.REMOTE_DIR}/app.sh"
                         def out = sshCommand remote: remote, command: """
                             sudo chmod +x ${env.REMOTE_DIR}/app.sh
                             sudo ${env.REMOTE_DIR}/app.sh
                         """, returnStdout: true
+                        
                         echo "=== OUTPUT FROM ${params.TARGET_ENV} (${host}) ==="
                         echo out.trim()
 
@@ -62,27 +66,30 @@ pipeline {
                 script {
                     echo "Migrating data.txt from UAT → DEV…"
 
-                    // Define remotes
                     def uatRemote = [ user: 'shubham', host: env.UAT_HOST, allowAnyHosts: true ]
                     def devRemote = [ user: 'shubham', host: env.DEV_HOST, allowAnyHosts: true ]
 
                     withCredentials([
-                        sshUserPrivateKey(credentialsId: 'ssh-server27-key', keyFileVariable: 'UAT_KEY', usernameVariable: 'USR1'),
-                        sshUserPrivateKey(credentialsId: 'ssh-server28-key', keyFileVariable: 'DEV_KEY', usernameVariable: 'USR2')
+                        sshUserPrivateKey(credentialsId: 'ssh-shubham-key-27', keyFileVariable: 'UAT_KEY', usernameVariable: 'USR1'),
+                        sshUserPrivateKey(credentialsId: 'ssh-shubham-key', keyFileVariable: 'DEV_KEY', usernameVariable: 'USR2')
                     ]) {
                         uatRemote.identity = UAT_KEY
                         devRemote.identity = DEV_KEY
 
-                        // Pull from UAT into workspace
-                        sshGet  remote: uatRemote, from: "${env.REMOTE_DIR}/data.txt", into: 'data.txt'
-                        // Copy into DEV home or /tmp to avoid sudo
-                        sshPut  remote: devRemote, from: 'data.txt', into: '/tmp/data.txt'
-                        // Move into final directory with sudo
-                        sshCommand remote: devRemote, command: 'sudo mv /tmp/data.txt ' + env.REMOTE_DIR
-                        // Verify content
-                        def dataOut = sshCommand remote: devRemote, command: "cat ${env.REMOTE_DIR}/data.txt", returnStdout: true
-                        echo "=== MIGRATED data.txt CONTENT ON DEV ==="
-                        echo dataOut.trim()
+                        try {
+                            // Pull from UAT into workspace
+                            sshGet  remote: uatRemote, from: "${env.REMOTE_DIR}/data.txt", into: 'data.txt'
+                            // Copy into DEV /tmp to avoid sudo issues
+                            sshPut  remote: devRemote, from: 'data.txt', into: '/tmp/data.txt'
+                            // Move to final directory with sudo
+                            sshCommand remote: devRemote, command: "sudo mv /tmp/data.txt ${env.REMOTE_DIR}/data.txt"
+                            // Verify content
+                            def dataOut = sshCommand remote: devRemote, command: "cat ${env.REMOTE_DIR}/data.txt", returnStdout: true
+                            echo "=== MIGRATED data.txt CONTENT ON DEV ==="
+                            echo dataOut.trim()
+                        } catch (Exception e) {
+                            echo "Data migration skipped - data.txt may not exist on UAT: ${e.message}"
+                        }
                     }
                 }
             }
