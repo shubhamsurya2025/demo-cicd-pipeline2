@@ -184,7 +184,7 @@ EOF
         - Web: /var/lib/jenkins/userContent/demo-app/
         
         After this build, run these commands on Server 28:
-        ssh shubham@1.1.1.1.28
+        ssh shubham@172.25.1.28
         ls -la /var/lib/jenkins/server-27-uat/data/
         ls -la /var/lib/jenkins/server-28-dev/data/
         cat /var/lib/jenkins/server-27-uat/data/customers.json
