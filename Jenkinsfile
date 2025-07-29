@@ -3,22 +3,28 @@ pipeline {
 
   parameters {
     choice(name: 'DEPLOY_ENV',
-           choices: ['DEV','UAT'],
-           description: 'Where to deploy: DEV=172.25.1.28, UAT=172.25.1.27')
+           choices: ['DEV', 'UAT'],
+           description: 'Where to deploy: DEV → 172.25.1.28, UAT → 172.25.1.27')
   }
 
   environment {
-    JENKINS_HOME_DIR = "/var/lib/jenkins"
-    UAT_IP    = "172.25.1.27"
-    DEV_IP    = "172.25.1.28"
-    UAT_DIR   = "${JENKINS_HOME_DIR}/${UAT_IP}/data"
-    DEV_DIR   = "${JENKINS_HOME_DIR}/${DEV_IP}/data"
-    WEB_ROOT  = "${JENKINS_HOME_DIR}/userContent/demo-app"
-    APP_URL   = "http://${UAT_IP}:8181/userContent/demo-app/index.html"
+    JENKINS_HOME_DIR = '/var/lib/jenkins'
+    UAT_IP           = '172.25.1.27'
+    DEV_IP           = '172.25.1.28'
+    UAT_DIR          = "${JENKINS_HOME_DIR}/${UAT_IP}/data"
+    DEV_DIR          = "${JENKINS_HOME_DIR}/${DEV_IP}/data"
+    WEB_ROOT         = "${JENKINS_HOME_DIR}/userContent/demo-app"
+    APP_URL_UAT      = "http://${UAT_IP}:8181/userContent/demo-app/index.html"
+    APP_URL_DEV      = "http://${UAT_IP}:8181/userContent/demo-app/index.html"
+  }
+
+  tools {
+    // Ensure Pipeline Utility Steps plugin is available
+    // to use fileExists and findFiles
   }
 
   stages {
-    stage('Debug') {
+    stage('Debug Environment') {
       steps {
         sh '''
           echo "Workspace: ${WORKSPACE}"
@@ -41,48 +47,70 @@ pipeline {
       }
     }
 
-    stage('Build App') {
+    stage('Build Web App') {
       steps {
         script {
-          writeFile file: 'index.html', text: """
-            <!DOCTYPE html><html><body>
-              <h1>CI/CD Demo</h1>
-              <p>Env: ${params.DEPLOY_ENV}</p>
-              <p>Build #${BUILD_NUMBER}</p>
-            </body></html>
+          def html = """
+          <!DOCTYPE html>
+          <html><head><meta charset='utf-8'><title>Demo – ${params.DEPLOY_ENV}</title></head>
+          <body style='font-family:sans-serif;text-align:center;padding-top:40px;'>
+            <h1>CI/CD Demo</h1>
+            <p>Environment: ${params.DEPLOY_ENV}</p>
+            <p>Build #${env.BUILD_NUMBER}</p>
+          </body></html>
           """
+          writeFile file: 'index.html', text: html
         }
       }
     }
 
-    stage('Deploy') {
+    stage('Deploy App') {
       steps {
         script {
-          def targetDir = (params.DEPLOY_ENV=='DEV') ? DEV_DIR : UAT_DIR
+          def target = (params.DEPLOY_ENV == 'DEV') ? DEV_DIR : UAT_DIR
           sh """
-            cp index.html "${targetDir}/"
-            cp index.html "${WEB_ROOT}/"
-            echo "Deployed to ${targetDir}"
+            cp -v index.html "${target}/"
+            cp -v index.html "${WEB_ROOT}/"
+            echo "App deployed to ${target}"
           """
-          echo "→ Demo app URL: ${APP_URL}"
+          echo "→ App URL: ${params.DEPLOY_ENV == 'DEV' ? APP_URL_DEV : APP_URL_UAT}"
         }
       }
     }
 
     stage('Data Migration') {
-      when { expression { params.DEPLOY_ENV=='DEV' } }
+      when { expression { params.DEPLOY_ENV == 'DEV' } }
       steps {
         sh '''
-          # Ensure UAT data exists
+          # ensure UAT data exists
           if [ ! -f "${UAT_DIR}/data.json" ]; then
-            echo '{"foo":"bar","source":"UAT"}' > "${UAT_DIR}/data.json"
+            printf '{"foo":"bar","source":"UAT-Server"}' > "${UAT_DIR}/data.json"
           fi
           echo "UAT data:"; cat "${UAT_DIR}/data.json"
-          # Migrate to DEV
-          cp "${UAT_DIR}/data.json" "${DEV_DIR}/data.json"
-          sed -i 's/UAT/DEV/' "${DEV_DIR}/data.json"
+
+          # migrate to DEV
+          cp -v "${UAT_DIR}/data.json" "${DEV_DIR}/data.json"
+          sed -i 's/UAT-Server/DEV-Server/' "${DEV_DIR}/data.json"
+
           echo "DEV data:"; cat "${DEV_DIR}/data.json"
         '''
+      }
+    }
+
+    stage('Verify Migration') {
+      steps {
+        script {
+          if (fileExists("${UAT_DIR}/data.json")) {
+            echo "✅ UAT data.json exists"
+          } else {
+            error "❌ UAT data.json missing"
+          }
+          if (fileExists("${DEV_DIR}/data.json")) {
+            echo "✅ DEV data.json exists"
+          } else {
+            error "❌ DEV data.json missing"
+          }
+        }
       }
     }
   }
@@ -90,15 +118,15 @@ pipeline {
   post {
     success {
       echo """
-      ▶ Pipeline succeeded.
-      ▶ App published at: ${APP_URL}
-      ▶ Check data on:
-         - UAT: /var/lib/jenkins/${UAT_IP}/data/data.json
-         - DEV: /var/lib/jenkins/${DEV_IP}/data/data.json
+      ====================================
+      ✅ PIPELINE SUCCESSFUL
+      Environment: ${params.DEPLOY_ENV}
+      App URL: ${params.DEPLOY_ENV == 'DEV' ? APP_URL_DEV : APP_URL_UAT}
+      ====================================
       """
     }
     failure {
-      echo "Pipeline failed – see logs above for errors."
+      echo "❌ PIPELINE FAILED – check the console output for details."
     }
   }
 }
