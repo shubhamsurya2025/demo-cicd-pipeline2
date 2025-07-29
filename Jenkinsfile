@@ -1,12 +1,8 @@
 pipeline {
   agent any
-
   parameters {
-    choice(name: 'DEPLOY_ENV',
-           choices: ['DEV', 'UAT'],
-           description: 'Where do you want to deploy?')
+    choice(name: 'DEPLOY_ENV', choices: ['DEV', 'UAT'], description: 'Where do you want to deploy?')
   }
-
   environment {
     JENKINS_HOME_DIR = "/var/lib/jenkins"
     UAT_DIR   = "/var/lib/jenkins/server-27-uat"
@@ -14,59 +10,66 @@ pipeline {
     WEB_ROOT  = "/var/lib/jenkins/userContent/demo-app"
     APP_URL   = "${JENKINS_URL}/userContent/demo-app/index.html"
   }
-
   stages {
-
-    stage('Debug Environment') {
+    stage('System Diagnostics') {
       steps {
         sh '''
           echo "=========================================="
-          echo "DEBUGGING JENKINS ENVIRONMENT"
+          echo "SYSTEM DIAGNOSTICS AND PERMISSIONS CHECK"
           echo "=========================================="
-          echo "Current working directory: $(pwd)"
-          echo "JENKINS_HOME: ${JENKINS_HOME_DIR}"
-          echo "UAT_DIR: ${UAT_DIR}"
-          echo "DEV_DIR: ${DEV_DIR}"
-          echo "WEB_ROOT: ${WEB_ROOT}"
-          echo "Workspace: ${WORKSPACE}"
           echo "Current user: $(whoami)"
-          echo "Jenkins user check: $(id jenkins 2>/dev/null || echo 'Jenkins user not found')"
+          echo "Current working directory: $(pwd)"
+          echo "Current user ID: $(id)"
+          echo "Jenkins Home Directory: ${JENKINS_HOME_DIR}"
+          echo "Checking Jenkins home exists:"
+          ls -ld "${JENKINS_HOME_DIR}" || echo "Jenkins home directory not found"
+          echo "Checking Jenkins home permissions:"
+          ls -la "${JENKINS_HOME_DIR}" | head -10
+          echo "Checking if we can write to Jenkins home:"
+          touch "${JENKINS_HOME_DIR}/test-write-permission" && echo "Write permission OK" && rm "${JENKINS_HOME_DIR}/test-write-permission" || echo "Write permission DENIED"
+          echo "Available disk space:"
+          df -h "${JENKINS_HOME_DIR}"
           echo "=========================================="
         '''
       }
     }
-
-    stage('Prepare Folders') {
+    stage('Prepare Folders - Verbose') {
       steps {
         sh '''
           echo "=========================================="
-          echo "CREATING SIMULATION DIRECTORIES"
+          echo "CREATING DIRECTORIES WITH DETAILED OUTPUT"
           echo "=========================================="
+          set -x  # Enable command tracing
           
-          # Create directories with explicit paths and verbose output
-          echo "Creating UAT directory: ${UAT_DIR}/data"
-          mkdir -p "${UAT_DIR}/data" || { echo "Failed to create UAT dir"; exit 1; }
+          echo "Step 1: Creating UAT directory with full path"
+          mkdir -p -v "${UAT_DIR}/data" 2>&1 || { echo "FAILED to create UAT directory"; exit 1; }
           
-          echo "Creating DEV directory: ${DEV_DIR}/data"
-          mkdir -p "${DEV_DIR}/data" || { echo "Failed to create DEV dir"; exit 1; }
+          echo "Step 2: Creating DEV directory with full path"  
+          mkdir -p -v "${DEV_DIR}/data" 2>&1 || { echo "FAILED to create DEV directory"; exit 1; }
           
-          echo "Creating WEB directory: ${WEB_ROOT}"
-          mkdir -p "${WEB_ROOT}" || { echo "Failed to create WEB dir"; exit 1; }
+          echo "Step 3: Creating WEB directory with full path"
+          mkdir -p -v "${WEB_ROOT}" 2>&1 || { echo "FAILED to create WEB directory"; exit 1; }
           
-          echo "Setting permissions..."
-          chmod 755 "${UAT_DIR}" "${DEV_DIR}" "${WEB_ROOT}" 2>/dev/null || echo "Permission setting skipped"
+          echo "Step 4: Setting permissions explicitly"
+          chmod -v 755 "${UAT_DIR}" "${DEV_DIR}" "${WEB_ROOT}" 2>&1 || echo "Permission setting warning (non-critical)"
           
-          echo "Verification - Directory listing:"
-          ls -ld "${UAT_DIR}" "${DEV_DIR}" "${WEB_ROOT}" || echo "Some directories missing"
+          echo "Step 5: Verifying directory creation"
+          echo "UAT Directory:"
+          ls -ld "${UAT_DIR}" && ls -la "${UAT_DIR}/data" || echo "UAT directory verification failed"
+          echo "DEV Directory:"  
+          ls -ld "${DEV_DIR}" && ls -la "${DEV_DIR}/data" || echo "DEV directory verification failed"
+          echo "WEB Directory:"
+          ls -ld "${WEB_ROOT}" || echo "WEB directory verification failed"
           
-          echo "Content check:"
-          ls -la "${UAT_DIR}/data" || echo "UAT data dir empty/missing"
-          ls -la "${DEV_DIR}/data" || echo "DEV data dir empty/missing"
+          echo "Step 6: Creating test files to verify write access"
+          echo "test content" > "${UAT_DIR}/data/test.txt" && echo "UAT write test OK" || echo "UAT write test FAILED"
+          echo "test content" > "${DEV_DIR}/data/test.txt" && echo "DEV write test OK" || echo "DEV write test FAILED"
+          
+          set +x  # Disable command tracing
           echo "=========================================="
         '''
       }
     }
-
     stage('Build Web App') {
       steps {
         script {
@@ -78,7 +81,8 @@ pipeline {
             <h1>CI/CD Demo ✔</h1>
             <h2>Environment: ${params.DEPLOY_ENV}</h2>
             <p>Build #${env.BUILD_NUMBER} – ${new Date()}</p>
-            <p>Data Migration: ${params.DEPLOY_ENV == 'DEV' ? 'ENABLED' : 'DISABLED'}</p>
+            <p>Node: ${env.NODE_NAME}</p>
+            <p>Workspace: ${env.WORKSPACE}</p>
           </body></html>
           """
           writeFile file: 'index.html', text: html
@@ -86,33 +90,36 @@ pipeline {
         echo 'Web page created in workspace.'
       }
     }
-
     stage('Deploy App') {
       steps {
         script {
           def target = params.DEPLOY_ENV == 'DEV' ? env.DEV_DIR : env.UAT_DIR
           sh """
             echo "Deploying to: ${target}"
-            cp index.html "${target}/" || { echo "Failed to copy to target"; exit 1; }
-            cp index.html "${WEB_ROOT}/" || { echo "Failed to copy to web root"; exit 1; }
+            echo "Copying index.html to target directory"
+            cp -v index.html "${target}/" || { echo "Failed to copy to target"; exit 1; }
+            echo "Copying index.html to web root"
+            cp -v index.html "${WEB_ROOT}/" || { echo "Failed to copy to web root"; exit 1; }
             echo "Deployment completed successfully"
+            echo "Target directory contents:"
             ls -la "${target}/" || echo "Target directory listing failed"
+            echo "Web root contents:"
+            ls -la "${WEB_ROOT}/" || echo "Web root listing failed"
           """
         }
       }
     }
-
     stage('Data Migration UAT → DEV') {
       when { expression { params.DEPLOY_ENV == 'DEV' } }
       steps {
         sh '''
           echo "=========================================="
-          echo "STARTING DATA MIGRATION"
+          echo "DATA MIGRATION WITH DETAILED LOGGING"
           echo "=========================================="
           
           # Create sample data on UAT if missing
           if [ ! -f "${UAT_DIR}/data/customers.json" ]; then
-            echo "Creating sample data on UAT..."
+            echo "Creating sample data on UAT server..."
             cat > "${UAT_DIR}/data/customers.json" <<EOF
 {
   "customers": [
@@ -121,88 +128,76 @@ pipeline {
   ],
   "source": "UAT-Server-27",
   "created": "$(date -Iseconds)",
-  "build": "${BUILD_NUMBER}"
+  "build": "${BUILD_NUMBER}",
+  "workspace": "${WORKSPACE}",
+  "node": "${NODE_NAME}"
 }
 EOF
-            echo "Sample data created on UAT"
+            echo "Sample data created successfully"
           else
             echo "UAT data already exists"
           fi
-
-          # Show source data
-          echo "UAT Source Data:"
+          
+          # Verify UAT data
+          echo "UAT Source Data (${UAT_DIR}/data/customers.json):"
           cat "${UAT_DIR}/data/customers.json" || { echo "Failed to read UAT data"; exit 1; }
-
+          
           # Migrate to DEV
           echo "Migrating data from UAT to DEV..."
-          cp "${UAT_DIR}/data/customers.json" "${DEV_DIR}/data/customers.json" || { echo "Migration failed"; exit 1; }
+          cp -v "${UAT_DIR}/data/customers.json" "${DEV_DIR}/data/customers.json" || { echo "Migration copy failed"; exit 1; }
           
           # Update source reference for DEV
           sed -i 's/UAT-Server-27/DEV-Server-28/' "${DEV_DIR}/data/customers.json"
           
-          # Verify migration
-          echo "DEV Destination Data:"
+          # Verify DEV data
+          echo "DEV Destination Data (${DEV_DIR}/data/customers.json):"
           cat "${DEV_DIR}/data/customers.json" || { echo "Failed to read DEV data"; exit 1; }
           
-          # Calculate size
+          # Calculate and compare sizes
           UAT_SIZE=$(wc -c < "${UAT_DIR}/data/customers.json")
           DEV_SIZE=$(wc -c < "${DEV_DIR}/data/customers.json")
           
           echo "Migration Summary:"
-          echo "  UAT file size: ${UAT_SIZE} bytes"
-          echo "  DEV file size: ${DEV_SIZE} bytes"
+          echo "  UAT file: ${UAT_DIR}/data/customers.json (${UAT_SIZE} bytes)"
+          echo "  DEV file: ${DEV_DIR}/data/customers.json (${DEV_SIZE} bytes)"
           echo "  Status: SUCCESS"
           echo "=========================================="
         '''
       }
     }
-
-    stage('Verification') {
-      steps {
-        sh '''
-          echo "=========================================="
-          echo "FINAL VERIFICATION"
-          echo "=========================================="
-          
-          echo "Directory Structure:"
-          find /var/lib/jenkins/server-* -type f 2>/dev/null || echo "No server directories found"
-          
-          echo "Web Application:"
-          ls -la "${WEB_ROOT}/" || echo "Web directory not found"
-          
-          echo "Application URL: ${APP_URL}"
-          echo "=========================================="
-        '''
-      }
-    }
   }
-
   post {
-    success {
+    always {
       script {
         echo """
         ==========================================
-        ✅ PIPELINE COMPLETED SUCCESSFULLY
+        🔍 TROUBLESHOOTING SUMMARY
         ==========================================
         Environment: ${params.DEPLOY_ENV}
-        Web URL: ${env.APP_URL}
         Build: #${env.BUILD_NUMBER}
+        Node: ${env.NODE_NAME}
+        Workspace: ${env.WORKSPACE}
+        
+        Expected Directory Locations:
+        - UAT: /var/lib/jenkins/server-27-uat/data/
+        - DEV: /var/lib/jenkins/server-28-dev/data/
+        - Web: /var/lib/jenkins/userContent/demo-app/
+        
+        After this build, run these commands on Server 28:
+        ssh shubham@1.1.1.1.28
+        ls -la /var/lib/jenkins/server-27-uat/data/
+        ls -la /var/lib/jenkins/server-28-dev/data/
+        cat /var/lib/jenkins/server-27-uat/data/customers.json
+        cat /var/lib/jenkins/server-28-dev/data/customers.json
         ==========================================
         """
       }
     }
+    success {
+      echo "✅ Pipeline completed successfully - directories should now exist!"
+    }
     failure {
-      echo """
-      ==========================================
-      ❌ PIPELINE FAILED
-      ==========================================
-      Check the console output above for errors.
-      Most likely issues:
-      1. Permission problems creating directories
-      2. Jenkins workspace issues
-      3. Missing Jenkins home directory access
-      ==========================================
-      """
+      echo "❌ Pipeline failed - check System Diagnostics stage for permission issues"
     }
   }
 }
